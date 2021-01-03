@@ -54,6 +54,11 @@ function build_data_structure {
 	mkdir -p data/mqtt/config
 	mkdir -p data/zigbee/
 	mkdir -p data/nodered/
+	mkdir -p data/homeassistant/
+	mkdir -p data/tasmoadmin/
+	mkdir -p data/grafana/
+	mkdir -p data/influxdb/
+	mkdir -p data/chronograf/
 
 	touch data/mqtt/config/mosquitto.conf
 
@@ -61,11 +66,25 @@ function build_data_structure {
 		create_zigbee2mqtt_config
 	fi
 
-	sudo chown 1883:1883 data/mqtt
-	sudo chown -R 1883:1883 data/mqtt/*
+    if [ ! -f data/influxdb/influxdb.conf ]; then
+        docker run --rm influxdb influxd config > data/influxdb/influxdb.conf
+    fi
+
+	sudo chown 1000:1000 data/mqtt
+	sudo chown -R 1000:1000 data/mqtt/*
 	sudo chown 1000:1000 data/nodered
 	sudo chown -Rf 1000:1000 data/nodered/*
-	sudo chown 0:0 data/mqtt
+	sudo chown 1000:1000 data/mqtt
+	sudo chown 1000:1000 data/homeassistant
+	sudo chown -Rf 1000:1000 data/homeassistant/*
+	sudo chown 1000:1000 data/tasmoadmin
+	sudo chown -Rf 1000:1000 data/tasmoadmin/*
+	sudo chown 1000:1000 data/grafana
+	sudo chown -Rf 1000:1000 data/grafana/*
+	sudo chown 1000:1000 data/influxdb
+	sudo chown -Rf 1000:1000 data/influxdb/*
+	sudo chown 1000:1000 data/chronograf
+	sudo chown -Rf 1000:1000 data/chronograf/*
 }
 
 function check_dependencies {
@@ -85,7 +104,7 @@ function start {
 	device=$(detect_zigbee_device)
 	if [ "$device" == "False" ]; then
 		echo "No Zigbee adaptor found. Not starting Zigbee2MQTT."
-		container="nodered mqtt"
+		container="nodered mqtt homeassistant tasmoadmin influxdb grafana chronograf"
 	fi
 
 	if [ ! -d data ]; then

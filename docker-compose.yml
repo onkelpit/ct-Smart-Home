@@ -11,9 +11,10 @@ services:
     depends_on:
       - mqtt
     restart: always
-    network_mode: "host"
+    #inetwork_mode: "host"
     environment:
       - TZ=Europe/Berlin
+    hostname: nodered
     
   mqtt:
     image: "eclipse-mosquitto"
@@ -26,6 +27,7 @@ services:
     restart: always
     environment:
       - TZ=Europe/Berlin
+    hostname: mqtt
     
   zigbee:
     image: koenkk/zigbee2mqtt
@@ -49,3 +51,80 @@ services:
     ports:
       - 8880:80
     restart: always
+  
+  homeassistant:
+    image: homeassistant/home-assistant
+    volumes:
+      - ./data/homeassistant:/config
+      - /etc/localtime:/etc/localtime
+    restart: always
+    privileged: true
+    environment:
+      - TZ=Europe/Berlin
+    ports:
+      - 8123:8123
+    devices:
+      - "/dev/ttyACM0:/dev/ttyACM0"
+      - "/dev/ttyACM1:/dev/ttyACM1"
+    hostname: homeassistant
+
+  tasmoadmin:
+    image: raymondmm/tasmoadmin
+    volumes:
+      - ./data/tasmoadmin:/data
+      - /etc/localtime:/etc/localtime
+    restart: always
+    privileged: true
+    environment:
+      - TZ=Europe/Berlin
+    ports:
+        - 8881:80
+    hostname: tasmoadmin
+
+  grafana:
+    image: grafana/grafana
+    volumes:
+      - ./data/grafana:/var/lib/grafana
+      - /etc/localtime:/etc/localtime
+    ports:
+      - 3000:3000
+    environment:
+      - GF_INSTALL_PLUGINS=grafana-clock-panel,grafana-simple-json-datasource
+      - TZ=Europe/Berlin
+    restart: always
+    privileged: true
+    user: "1000"
+    hostname: grafana
+
+  influxdb:
+    image: influxdb
+    volumes:
+      - ./data/influxdb:/var/lib/influxdb
+      - /etc/localtime:/etc/localtime
+    ports:
+      - 8086:8086
+    environment:
+      - INFLUXDB_DB=db0
+      - INFLUXDB_DB=data
+      - INFLUXDB_ADMIN_USER=admin
+      - INFLUXDB_ADMIN_PASSWORD=admin
+      - TZ=Europe/Berlin
+    restart: always
+    privileged: true
+    hostname: influxdb
+
+  chronograf:
+    image: chronograf
+    volumes:
+      - ./data/chronograf:/var/lib/chronograf
+      - /etc/localtime:/etc/localtime
+    ports:
+      - 8888:8888
+    environment:
+      - INFLUXDB_URL=http://influxdb:8086
+      - INFLUXDB_ADMIN_USER=admin
+      - INFLUXDB_ADMIN_PASSWORD=admin
+      - TZ=Europe/Berlin
+    restart: always
+    privileged: true
+    hostname: chronograf

@@ -21,6 +21,25 @@ function detect_zigbee_device {
 	fi
 }
 
+function create_mosquitto_config {
+	cat > data/mqtt/config/mosquitto.conf <<EOF
+
+log_type all
+
+listener 1883
+listener 9001 
+protocol websockets
+
+# Uncomment the following lines and create a passwd file using mosquitto_passwd to enable authentication.
+#password_file /mosquitto/config/passwd
+# Set this to false, to enable authentication
+allow_anonymous true
+EOF
+
+touch data/mqtt/config/passwd
+
+}
+
 function create_zigbee2mqtt_config {
 	cat > data/zigbee/configuration.yaml <<EOF
 # Home Assistant integration (MQTT discovery)
@@ -28,6 +47,12 @@ homeassistant: true
 
 # allow new devices to join
 permit_join: true
+
+# enable frontend
+frontend:
+  port: 1881 
+experimental:
+  new_api: true
 
 # MQTT settings
 mqtt:
@@ -45,31 +70,16 @@ advanced:
 
 EOF
 
-echo "Disable permit_join in data/zigbee/configuration.yaml after you have paired all of your devices!"
+echo '⚠️  Disable permit_join in data/zigbee/configuration.yaml or the Zigbee2MQTT webinterface on port 1881, after you have paired all of your devices!'
 
 }
 
-function build_data_structure {
-	echo "data folder is missing. creating it"
-	mkdir -p data/mqtt/config
-	mkdir -p data/zigbee/
-	mkdir -p data/nodered/
-	mkdir -p data/homeassistant/
-	mkdir -p data/tasmoadmin/
-	mkdir -p data/grafana/
-	mkdir -p data/influxdb/
-	mkdir -p data/chronograf/
-
-	touch data/mqtt/config/mosquitto.conf
-
-	if [ ! -f data/zigbee/configuration.yaml ]; then
-		create_zigbee2mqtt_config
-	fi
-
-    if [ ! -f data/influxdb/influxdb.conf ]; then
-        docker run --rm influxdb influxd config > data/influxdb/influxdb.conf
-    fi
-
+function fix_permissions {
+	echo '📄 Setting the permissions of the configurations in the data folder.'
+	sudo chown 1000:1000 data/mqtt
+	sudo chown -Rf 1000:1000 data/mqtt/*
+	sudo chown 1000:1000 data/nodered
+	sudo chown -Rf 1000:1000 data/nodered/*
 	sudo chown 1000:1000 data/mqtt
 	sudo chown -R 1000:1000 data/mqtt/*
 	sudo chown 1000:1000 data/nodered
@@ -87,14 +97,41 @@ function build_data_structure {
 	sudo chown -Rf 1000:1000 data/chronograf/*
 }
 
+
+function build_data_structure {
+	echo '📄 Configuration folder ./data is missing. Creating it from scratch.'
+	mkdir -p data/mqtt/config
+	mkdir -p data/zigbee/
+	mkdir -p data/nodered/
+	mkdir -p data/homeassistant/
+	mkdir -p data/tasmoadmin/
+	mkdir -p data/grafana/
+	mkdir -p data/influxdb/
+	mkdir -p data/chronograf/
+
+	if [ ! -f data/mqtt/config/mosquitto.conf ]; then
+		create_mosquitto_config
+	fi
+
+	if [ ! -f data/zigbee/configuration.yaml ]; then
+		create_zigbee2mqtt_config
+	fi
+
+    	if [ ! -f data/influxdb/influxdb.conf ]; then
+       		 docker run --rm influxdb influxd config > data/influxdb/influxdb.conf
+    	fi
+
+	fix_permissions
+}
+
 function check_dependencies {
 	if ! [ -x "$(command -v docker-compose)" ]; then
-		echo 'Error: docker-compose is not installed.' >&2
+		echo '⚠️  Error: docker-compose is not installed.' >&2
 		exit 1
 	fi
 
 	if ! [ -x "$(command -v git)" ]; then
-		echo 'Error: git is not installed.' >&2
+		echo '⚠️  Error: git is not installed.' >&2
 		exit 1
 	fi
 }
@@ -102,8 +139,8 @@ function check_dependencies {
 function start {
 
 	device=$(detect_zigbee_device)
-	if [ "$device" == "False" ]; then
-		echo "No Zigbee adaptor found. Not starting Zigbee2MQTT."
+	if [ $device == "False" ]; then
+		echo '⚠️  No Zigbee adaptor found. Not starting Zigbee2MQTT.'
 		container="nodered mqtt homeassistant tasmoadmin influxdb grafana chronograf"
 	fi
 
@@ -111,36 +148,51 @@ function start {
 		build_data_structure    
 	fi
 
-	echo "Starting the containers"
-    if [ -z "$container" ]; then
-        docker-compose up -d
-    else
-
-        docker-compose up -d "$container"
-    fi
+	echo '🏃 Starting the containers'
+	docker-compose up -d $container
+	echo '⚠️  After you made yourself familiar with the setup, it'"'"'s strongly suggested to secure the services. Read the "Security" section in the README!'
 }
 
 function stop {
-	echo "Stopping all containers"
+	echo '🛑 Stopping all containers'
 	docker-compose stop
 }
 
 function update {
-	echo "Shutting down all running containers and removing them."
-	if docker-compose down; then
-		echo "Updating failed. Please check the repository on GitHub."
+	if [[ ! -d ".git" ]]
+	then
+		echo "🛑You have manually downloaded the release version of c't-Smart-Home.
+The automatic update only works with a cloned Git repository.
+Try backing up your settings shutting down all containers with 
+
+docker-compose down --remove orphans
+
+Then copy the current version from GitHub to this folder and run
+
+./start.sh start.
+
+Alternatively create a Git clone of the repository."
+		exit 1
+	fi
+	echo '☠️  Shutting down all running containers and removing them.'
+	docker-compose down --remove-orphans
+	if [ ! $? -eq 0 ]; then
+		echo '⚠️  Updating failed. Please check the repository on GitHub.'
 	fi	    
-	echo "Pulling latest release via git."
+	echo '⬇️  Pulling latest release via git.'
 	git fetch --tags
-	latestTag=$(git describe --tags "$(git rev-list --tags --max-count=1)")
-	if git checkout "$latestTag"; then
-		echo "Updating failed. Please check the repository on GitHub."
+	latestTag=$(git describe --tags `git rev-list --tags --max-count=1`)
+	git checkout $latestTag
+	if [ ! $? -eq 0 ]; then
+		echo '⚠️  Updating failed. Please check the repository on GitHub.'
 	fi	    
-	echo "Pulling docker images."
-	if docker-compose pull; then
-		echo "Updating failed. Please check the repository on GitHub."
+	echo '⬇️  Pulling docker images.'
+	docker-compose pull
+	if [ ! $? -eq 0 ]; then
+		echo '⚠️  Updating failed. Please check the repository on GitHub.'
 	fi	    
 	start
+	fix_permissions
 }
 
 check_dependencies
@@ -155,16 +207,24 @@ case "$1" in
 	"update")
 		update
 		;;
+	"fix")
+		fix_permissions	
+		;;
 	"data")
 		build_data_structure
 		;;
 	* )
-		echo "c't-Smart-Home – setup script"
-		echo "============================="
-		echo "Usage:"
-		echo "start.sh update – to update this copy of the repo"
-		echo "start.sh start – run all containers"
-		echo "start.sh stop – stop all containers"
-		echo "start.sh data – set up the data folder needed for the containers, but run none of them. Useful for personalized setups."
+		cat << EOF
+🏡 c't-Smart-Home – setup script
+—————————————————————————————
+Usage:
+start.sh update – update to the latest release version
+start.sh fix – correct the permissions in the data folder 
+start.sh start – run all containers
+start.sh stop – stop all containers
+start.sh data – set up the data folder needed for the containers, but run none of them. Useful for personalized setups.
+
+Check https://github.com/ct-Open-Source/ct-Smart-Home/ for updates.
+EOF
 		;;
 esac
